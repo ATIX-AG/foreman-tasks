@@ -225,6 +225,28 @@ module ForemanTasks
       parts.join(' ').strip
     end
 
+    def self.get_latest_tasks_by_resource_ids(label, resource_ids, resource_type)
+      ids = resource_ids.join(',')
+      base_combined_table = search_for("label = #{label} and resource_type = #{resource_type} and resource_id ^ (#{ids})")
+
+      grouped = base_combined_table.select(
+        "MAX(#{self::DynflowTask.table_name}.started_at) AS started_at",
+        "#{ForemanTasks::Lock.table_name}.resource_id AS resource_id"
+      ).group("#{ForemanTasks::Lock.table_name}.resource_id")
+
+      max_per_resource_id = self::DynflowTask.joins(
+        :locks
+      ).select(
+        "#{self::DynflowTask.table_name}.*, inner_select.resource_id"
+      ).joins(
+        "INNER JOIN (#{grouped.to_sql}) inner_select
+        ON inner_select.started_at = #{self::DynflowTask.table_name}.started_at
+        AND inner_select.resource_id = locks_foreman_tasks_tasks.resource_id"
+      ).distinct
+
+      max_per_resource_id.map { |t| [t.resource_id, t] }.to_h
+    end
+
     protected
 
     def generate_id
